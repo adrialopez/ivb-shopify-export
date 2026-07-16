@@ -7,7 +7,8 @@ if (!defined('ABSPATH')) {
  * Convierte pedidos de WooCommerce a filas con la estructura de la plantilla
  * Matrixify "Orders" (una fila por pedido/línea, agrupadas por columna "Number").
  *
- * Asunciones (revisar antes de la migración definitiva):
+ * Asunciones (revisar antes de la migración definitiva; ver también
+ * https://matrixify.app/documentation/orders/):
  * - "Command" siempre NEW, "Send Receipt" siempre FALSE (no reenviar emails al importar).
  * - "Inventory Behaviour" = bypass, para no tocar stock de Shopify al importar histórico.
  * - Se añade la etiqueta "SINCRONIZADO" en Tags (obligatorio según nota de la plantilla,
@@ -16,6 +17,12 @@ if (!defined('ABSPATH')) {
  * - "Line: Price" es el precio unitario ANTES de descuento; el descuento de línea
  *   (si lo hay) va en "Line: Discount".
  * - Company (B2B) no se exporta — no aplica al modelo de datos actual.
+ * - Impuestos SOLO a nivel de pedido (Tax 1/2/3), nunca también a nivel de línea:
+ *   Matrixify indica explícitamente que rellenar ambos duplica/falla el import.
+ * - Transaction: Force Gateway / Test = FALSE siempre, para evitar disparar pagos
+ *   reales en la pasarela durante la migración.
+ * - Email de pedido/cliente: si el email de WooCommerce no es válido, se omite de
+ *   los campos Email (Shopify rechaza emails inválidos) y se deja constancia en Note.
  */
 class ISE_Order_Exporter {
 
@@ -95,7 +102,9 @@ class ISE_Order_Exporter {
         }
 
         foreach ($refunds as $refund) {
-            $rows[] = $this->refund_row($base, $refund, $order);
+            foreach ($this->refund_rows($base, $refund, $order) as $refund_row) {
+                $rows[] = $refund_row;
+            }
         }
 
         return $rows;
@@ -103,11 +112,18 @@ class ISE_Order_Exporter {
 
     private function fill_order_fields(array &$row, WC_Order $order) {
         $status = $order->get_status();
+        $email  = $order->get_billing_email();
+        $note   = $order->get_customer_note();
 
-        $row['Phone'] = $order->get_billing_phone();
-        $row['Email'] = $order->get_billing_email();
-        $row['Note']  = $order->get_customer_note();
-        $row['Tags']  = 'SINCRONIZADO';
+        $row['Phone'] = $this->normalize_phone($order->get_billing_phone(), $order->get_billing_country());
+
+        if ($email && is_email($email)) {
+            $row['Email'] = $email;
+        } elseif ($email) {
+            $note = trim($note . "\nEmail original (no válido para Shopify): {$email}");
+        }
+        $row['Note'] = $note;
+        $row['Tags'] = 'SINCRONIZADO';
 
         if ($status === 'cancelled') {
             $row['Cancelled At'] = $this->format_date($order->get_date_modified());
@@ -125,8 +141,10 @@ class ISE_Order_Exporter {
 
         $customer_id = $order->get_customer_id();
         $row['Customer: ID']         = $customer_id ?: '';
-        $row['Customer: Email']      = $order->get_billing_email();
-        $row['Customer: Phone']      = $order->get_billing_phone();
+        if ($email && is_email($email)) {
+            $row['Customer: Email'] = $email;
+        }
+        $row['Customer: Phone']      = $row['Phone'];
         $row['Customer: First Name'] = $order->get_billing_first_name();
         $row['Customer: Last Name']  = $order->get_billing_last_name();
 
@@ -134,7 +152,7 @@ class ISE_Order_Exporter {
         $row['Billing: Last Name']     = $order->get_billing_last_name();
         $row['Billing: Name']          = trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name());
         $row['Billing: Company']       = $order->get_billing_company();
-        $row['Billing: Phone']         = $order->get_billing_phone();
+        $row['Billing: Phone']         = $row['Phone'];
         $row['Billing: Address 1']     = $order->get_billing_address_1();
         $row['Billing: Address 2']     = $order->get_billing_address_2();
         $row['Billing: Zip']           = $order->get_billing_postcode();
@@ -147,7 +165,7 @@ class ISE_Order_Exporter {
         $row['Shipping: Last Name']    = $order->get_shipping_last_name();
         $row['Shipping: Name']         = trim($order->get_shipping_first_name() . ' ' . $order->get_shipping_last_name());
         $row['Shipping: Company']      = $order->get_shipping_company();
-        $row['Shipping: Phone']        = $order->get_shipping_phone() ?: $order->get_billing_phone();
+        $row['Shipping: Phone']        = $this->normalize_phone($order->get_shipping_phone(), $order->get_shipping_country()) ?: $row['Phone'];
         $row['Shipping: Address 1']    = $order->get_shipping_address_1();
         $row['Shipping: Address 2']    = $order->get_shipping_address_2();
         $row['Shipping: Zip']          = $order->get_shipping_postcode();
@@ -184,6 +202,10 @@ class ISE_Order_Exporter {
         $row['Transaction: Currency']       = $order->get_currency();
         $row['Transaction: Status']         = 'success';
         $row['Transaction: Gateway']        = $order->get_payment_method_title() ?: $order->get_payment_method();
+        // FALSE explícito: durante una migración nunca queremos disparar cargos reales
+        // en la pasarela ni transacciones de prueba marcadas como reales.
+        $row['Transaction: Force Gateway']  = 'FALSE';
+        $row['Transaction: Test']           = 'FALSE';
         $row['Fulfillment: Status']         = ($order->get_status() === 'completed') ? 'success' : '';
     }
 
@@ -216,30 +238,10 @@ class ISE_Order_Exporter {
                 $row['Line: Variant Barcode'] = $barcode;
             }
         }
-
-        $this->fill_line_taxes($row, $item);
-    }
-
-    private function fill_line_taxes(array &$row, WC_Order_Item $item) {
-        $taxes = $item->get_taxes();
-        if (empty($taxes['total'])) {
-            return;
-        }
-
-        $slots = array(1, 2, 3);
-        foreach ($taxes['total'] as $rate_id => $amount) {
-            if ($amount === '' || $amount === null) {
-                continue;
-            }
-            $slot = array_shift($slots);
-            if (!$slot) {
-                break;
-            }
-            $rate = WC_Tax::get_rate_percent_value($rate_id);
-            $row["Line: Tax {$slot} Title"] = WC_Tax::get_rate_label($rate_id);
-            $row["Line: Tax {$slot} Rate"]  = $rate !== '' ? $this->num($rate / 100) : '';
-            $row["Line: Tax {$slot} Price"] = $this->num($amount);
-        }
+        // Nota: no se rellenan impuestos a nivel de línea (Line: Tax N ...) a propósito.
+        // Matrixify solo admite impuestos a nivel de pedido O de línea, nunca ambos a
+        // la vez (ver fill_tax_totals) — y la propia plantilla del cliente usa solo
+        // el nivel de pedido.
     }
 
     private function fill_shipping_line_fields(array &$row, WC_Order_Item_Shipping $item) {
@@ -247,33 +249,94 @@ class ISE_Order_Exporter {
         $row['Line: Title']    = $item->get_name() ?: __('Envío', 'ivb-shopify-export');
         $row['Line: Price']    = $this->num($item->get_total());
         $row['Line: Taxable']  = ((float) $item->get_total_tax() > 0) ? 'TRUE' : 'FALSE';
-        $this->fill_line_taxes($row, $item);
     }
 
+    /**
+     * Matrixify solo soporta descuentos a nivel de pedido (Discount), con
+     * Line: Title = "percentage" o "fixed_amount" y Line: Price = el valor
+     * del descuento (porcentaje o importe fijo). El importe realmente
+     * aplicado va en Line: Discount, en negativo.
+     */
     private function fill_discount_line_fields(array &$row, WC_Order_Item_Coupon $item) {
-        $row['Line: Type']  = 'Discount';
-        $row['Line: Name']  = $item->get_code();
-        $row['Line: Title'] = $item->get_code();
         $amount = (float) $item->get_discount();
-        $row['Line: Price']    = 0;
-        $row['Line: Discount'] = $this->num($amount);
+        $type   = method_exists($item, 'get_discount_type') ? $item->get_discount_type() : '';
+
+        if (!$type && function_exists('wc_get_coupon_id_by_code') && wc_get_coupon_id_by_code($item->get_code())) {
+            $coupon = new WC_Coupon($item->get_code());
+            $type   = $coupon->get_discount_type();
+        }
+
+        $row['Line: Type'] = 'Discount';
+        $row['Line: Name'] = $item->get_code();
+
+        if ($type === 'percent' && isset($coupon)) {
+            $row['Line: Title'] = 'percentage';
+            $row['Line: Price'] = $this->num($coupon->get_amount());
+        } else {
+            $row['Line: Title'] = 'fixed_amount';
+            $row['Line: Price'] = $this->num($amount);
+        }
+
+        $row['Line: Discount'] = $this->num(-1 * $amount);
     }
 
-    private function refund_row(array $base, WC_Order_Refund $refund, WC_Order $order) {
-        $row = $base;
-        $row['Refund: ID']                     = $refund->get_id();
-        $row['Refund: Created At']             = $this->format_date($refund->get_date_created());
-        $row['Refund: Note']                   = $refund->get_reason();
-        $row['Refund: Restock']                = 'FALSE';
-        $row['Refund: Send Receipt']           = 'FALSE';
-        $row['Refund: Generate Transaction']   = 'TRUE';
-        $row['Transaction: Kind']              = 'refund';
-        $row['Transaction: Processed At']      = $this->format_date($refund->get_date_created());
-        $row['Transaction: Amount']            = $this->num(abs((float) $refund->get_amount()));
-        $row['Transaction: Currency']          = $order->get_currency();
-        $row['Transaction: Status']            = 'success';
-        $row['Transaction: Gateway']           = $order->get_payment_method_title() ?: $order->get_payment_method();
-        return $row;
+    /**
+     * Genera las filas "Refund Line" / "Refund Shipping" (una por artículo/
+     * envío devuelto, cantidad en negativo) más una fila de resumen con los
+     * campos Refund y Transaction del reembolso, todas con el mismo
+     * Refund: ID para que Matrixify las agrupe.
+     */
+    private function refund_rows(array $base, WC_Order_Refund $refund, WC_Order $order) {
+        $rows      = array();
+        $refund_id = $refund->get_id();
+
+        foreach ($refund->get_items('line_item') as $item) {
+            $row     = $base;
+            $product = $item->get_product();
+            $qty     = abs((int) $item->get_quantity());
+
+            $row['Line: Type']     = 'Refund Line';
+            $row['Line: Title']    = $item->get_name();
+            $row['Line: SKU']      = $product ? $product->get_sku() : '';
+            $row['Line: Quantity'] = $qty ? -$qty : '';
+            $row['Line: Price']    = $qty ? $this->num(abs((float) $item->get_total()) / $qty) : '';
+            $row['Refund: ID']     = $refund_id;
+            $rows[] = $row;
+        }
+
+        foreach ($refund->get_items('shipping') as $item) {
+            $row = $base;
+            $row['Line: Type']  = 'Refund Shipping';
+            $row['Line: Title'] = $item->get_name();
+            $row['Line: Price'] = $this->num(abs((float) $item->get_total()));
+            $row['Refund: ID']  = $refund_id;
+            $rows[] = $row;
+        }
+
+        if (empty($rows)) {
+            // Reembolso sin líneas asociadas (p.ej. ajuste manual de importe).
+            $row = $base;
+            $row['Refund: ID'] = $refund_id;
+            $rows[] = $row;
+        }
+
+        $rows[0]['Refund: Created At']           = $this->format_date($refund->get_date_created());
+        $rows[0]['Refund: Note']                 = $refund->get_reason();
+        $rows[0]['Refund: Restock']              = 'FALSE';
+        $rows[0]['Refund: Send Receipt']         = 'FALSE';
+        // FALSE: la transacción de tipo "refund" ya se añade explícitamente abajo,
+        // así que no necesitamos que Matrixify genere una automáticamente.
+        $rows[0]['Refund: Generate Transaction'] = 'FALSE';
+        $rows[0]['Transaction: Kind']            = 'refund';
+        $rows[0]['Transaction: Processed At']    = $this->format_date($refund->get_date_created());
+        $rows[0]['Transaction: Amount']          = $this->num(abs((float) $refund->get_amount()));
+        $rows[0]['Transaction: Currency']        = $order->get_currency();
+        $rows[0]['Transaction: Status']          = 'success';
+        $rows[0]['Transaction: Gateway']         = $order->get_payment_method_title() ?: $order->get_payment_method();
+        $rows[0]['Transaction: Force Gateway']   = 'FALSE';
+        $rows[0]['Transaction: Test']            = 'FALSE';
+
+        return $rows;
     }
 
     private function map_payment_status($wc_status) {
@@ -291,6 +354,27 @@ class ISE_Order_Exporter {
             default:
                 return 'pending';
         }
+    }
+
+    /**
+     * Matrixify exige el teléfono en formato internacional completo
+     * (p.ej. +34 600 111 222). WooCommerce normalmente solo guarda el
+     * número local, así que anteponemos el prefijo del país de la
+     * dirección si no lo lleva ya. Solo se cubre España (tienda IVB);
+     * para otros países se deja el número tal cual.
+     */
+    private function normalize_phone($phone, $country_code) {
+        $phone = trim((string) $phone);
+        if ($phone === '' || strpos($phone, '+') === 0) {
+            return $phone;
+        }
+
+        $dial_codes = array('ES' => '+34');
+        if (isset($dial_codes[$country_code])) {
+            return $dial_codes[$country_code] . ' ' . ltrim($phone, '0 ');
+        }
+
+        return $phone;
     }
 
     private function country_name($code) {
