@@ -51,6 +51,17 @@ Basadas en la [documentación oficial de Matrixify Orders](https://matrixify.app
 - El peso (`Line: Grams`) se convierte a gramos según la unidad de peso
   configurada en WooCommerce (`woocommerce_weight_unit`).
 
+## Rendimiento en exports grandes
+
+El export procesa los pedidos por lotes (100 por defecto, filtrable con
+`ise_export_batch_size`) y limpia la caché de objetos entre lotes. Esto es
+necesario porque WooCommerce con caché de objetos persistente (Redis/
+Memcached) va acumulando en memoria los datos de cada pedido consultado
+durante toda la petición, y un export de varias semanas puede agotar el
+límite de memoria de PHP sin este mecanismo. Si el hosting usa caché
+persistente, lanza los exports grandes fuera de horas punta (el
+`wp_cache_flush()` entre lotes afecta brevemente al caché de todo el sitio).
+
 ## Pendiente / no cubierto en esta primera versión
 
 - `Fulfillment: Tracking *` (no hay info de tracking en WooCommerce por

@@ -3,7 +3,7 @@
  * Plugin Name: IVB Shopify Export
  * Plugin URI: https://thinkingidea.com/
  * Description: Exporta pedidos de WooCommerce al formato Matrixify (Orders) para la migración a Shopify. Filtro por fechas y/o cliente.
- * Version: 0.1.1
+ * Version: 0.1.2
  * Author: Thinking Idea
  * Author URI: https://thinkingidea.com/
  * Text Domain: ivb-shopify-export
@@ -25,7 +25,7 @@ if (!in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get
     return;
 }
 
-define('ISE_VERSION', '0.1.1');
+define('ISE_VERSION', '0.1.2');
 define('ISE_PLUGIN_DIR', plugin_dir_path(__FILE__));
 
 require_once ISE_PLUGIN_DIR . 'includes/class-matrixify-columns.php';
@@ -147,18 +147,53 @@ class IVB_Shopify_Export {
             }
         }
 
+        // Exports grandes agotan memoria con caché de objetos persistente (Redis/etc.):
+        // cada wc_get_order() va acumulando datos en el object cache sin liberarse
+        // durante toda la petición. Procesamos por lotes y limpiamos caché entre ellos.
+        if (function_exists('wp_raise_memory_limit')) {
+            wp_raise_memory_limit('admin');
+        }
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(0);
+        }
+
         $order_ids = wc_get_orders($args);
 
         $writer   = new ISE_CSV_Writer('shopify-orders-' . gmdate('Y-m-d-His') . '.csv');
         $exporter = new ISE_Order_Exporter();
 
-        foreach ($order_ids as $order_id) {
-            $order = wc_get_order($order_id);
-            if (!$order) {
-                continue;
+        $batch_size = (int) apply_filters('ise_export_batch_size', 100);
+
+        foreach (array_chunk($order_ids, $batch_size) as $batch) {
+            foreach ($batch as $order_id) {
+                $order = wc_get_order($order_id);
+                if (!$order) {
+                    continue;
+                }
+                foreach ($exporter->rows_for_order($order) as $row) {
+                    $writer->write_row($row);
+                }
+                $order = null;
+                // Libera del caché (persistente o no) los datos de este pedido en
+                // concreto; más quirúrgico que un flush completo en cada iteración.
+                clean_post_cache($order_id);
             }
-            foreach ($exporter->rows_for_order($order) as $row) {
-                $writer->write_row($row);
+
+            // Suelta el buffer de salida al servidor para no acumular todo el CSV
+            // en memoria del lado del servidor.
+            if (ob_get_level() > 0) {
+                @ob_flush();
+            }
+            @flush();
+
+            // Red de seguridad para lo que clean_post_cache() no cubre (caché de
+            // sesión/productos de WooCommerce). wp_cache_flush() vacía el caché
+            // de objetos de todo el sitio, así que si el hosting usa caché
+            // persistente (Redis/Memcached) mejor lanzar exports grandes fuera
+            // de horas punta.
+            wp_cache_flush();
+            if (function_exists('gc_collect_cycles')) {
+                gc_collect_cycles();
             }
         }
 
