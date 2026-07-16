@@ -70,6 +70,34 @@ Basadas en la [documentación oficial de Matrixify Orders](https://matrixify.app
 - El peso (`Line: Grams`) se convierte a gramos según la unidad de peso
   configurada en WooCommerce (`woocommerce_weight_unit`).
 
+## Recargo de equivalencia
+
+En WooCommerce el recargo de equivalencia se aplica como un impuesto
+compuesto (no como un producto), pero en Shopify el cliente lo quiere como
+una línea de producto aparte apuntando a un Product ID fijo ya creado en la
+tienda — así lo muestra la fila de ejemplo de su propia plantilla
+(`Product ID 14932398932333`, `Title "re"`).
+
+WooCommerce → **Exportar a Shopify** tiene un bloque de configuración con
+dos campos (persistidos como opciones de WordPress, no hay que repetirlos
+en cada export):
+
+- **Texto que identifica el recargo** en el nombre de la tasa de impuesto
+  (WooCommerce > Ajustes > Impuestos), por defecto `recargo`. Se busca sin
+  distinguir mayúsculas en el label de cada tasa del pedido
+  (`$order->get_tax_totals()`).
+- **Product ID en Shopify** al que debe apuntar esa línea, por defecto
+  `14932398932333` (el de la plantilla del cliente).
+
+Cuando se detecta esa tasa: se excluye de las columnas `Tax N`, se resta de
+`Tax: Total` (para no contarla dos veces en el total del pedido) y se
+añade una fila `Line Item` con ese Product ID, cantidad 1 y precio = el
+importe del recargo de ese pedido.
+
+**Pendiente de confirmar con el cliente**: el nombre exacto de la tasa en
+WooCommerce > Ajustes > Impuestos — revisarlo y ajustar el campo de
+configuración si no contiene la palabra "recargo".
+
 ## Rendimiento en exports grandes
 
 El export procesa los pedidos por lotes (100 por defecto, filtrable con

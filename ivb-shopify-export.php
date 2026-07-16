@@ -3,7 +3,7 @@
  * Plugin Name: IVB Shopify Export
  * Plugin URI: https://thinkingidea.com/
  * Description: Exporta pedidos de WooCommerce al formato Matrixify (Orders) para la migración a Shopify. Filtro por fechas y/o cliente.
- * Version: 0.1.3
+ * Version: 0.2.0
  * Author: Thinking Idea
  * Author URI: https://thinkingidea.com/
  * Text Domain: ivb-shopify-export
@@ -25,7 +25,7 @@ if (!in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get
     return;
 }
 
-define('ISE_VERSION', '0.1.3');
+define('ISE_VERSION', '0.2.0');
 define('ISE_PLUGIN_DIR', plugin_dir_path(__FILE__));
 
 require_once ISE_PLUGIN_DIR . 'includes/class-matrixify-columns.php';
@@ -46,6 +46,7 @@ class IVB_Shopify_Export {
     private function __construct() {
         add_action('admin_menu', array($this, 'add_admin_menu'));
         add_action('admin_init', array($this, 'handle_export'));
+        add_action('admin_init', array($this, 'handle_save_settings'));
     }
 
     public function add_admin_menu() {
@@ -67,6 +68,33 @@ class IVB_Shopify_Export {
         <div class="wrap">
             <h1><?php esc_html_e('Exportar pedidos a Shopify (Matrixify)', 'ivb-shopify-export'); ?></h1>
             <p><?php esc_html_e('Genera un CSV con la estructura de la plantilla Matrixify "Orders", listo para importar en Shopify.', 'ivb-shopify-export'); ?></p>
+
+            <?php if (!empty($_GET['ise_settings_saved'])) : ?>
+                <div class="notice notice-success"><p><?php esc_html_e('Configuración guardada.', 'ivb-shopify-export'); ?></p></div>
+            <?php endif; ?>
+
+            <form method="post" style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:24px;margin-bottom:28px;display:flex;flex-wrap:wrap;gap:24px;align-items:flex-end;box-shadow:0 2px 8px rgba(0,0,0,.04);max-width:900px;">
+                <?php wp_nonce_field('ise_settings'); ?>
+
+                <div>
+                    <label for="ise_re_tax_keyword"><strong><?php esc_html_e('Texto que identifica el recargo de equivalencia en el nombre de la tasa (WooCommerce > Ajustes > Impuestos)', 'ivb-shopify-export'); ?></strong></label><br>
+                    <input type="text" id="ise_re_tax_keyword" name="ise_re_tax_keyword" style="min-width:260px;" value="<?php echo esc_attr(get_option('ise_re_tax_keyword', 'recargo')); ?>">
+                </div>
+
+                <div>
+                    <label for="ise_re_shopify_product_id"><strong><?php esc_html_e('Product ID en Shopify para el recargo', 'ivb-shopify-export'); ?></strong></label><br>
+                    <input type="text" id="ise_re_shopify_product_id" name="ise_re_shopify_product_id" style="min-width:200px;" value="<?php echo esc_attr(get_option('ise_re_shopify_product_id', '14932398932333')); ?>">
+                </div>
+
+                <div>
+                    <button type="submit" name="ise_save_settings" value="1" class="button">
+                        <?php esc_html_e('Guardar configuración', 'ivb-shopify-export'); ?>
+                    </button>
+                </div>
+            </form>
+            <p class="description" style="max-width:900px;margin-top:-16px;margin-bottom:28px;">
+                <?php esc_html_e('El pedido detecta el recargo buscando ese texto (sin distinguir mayúsculas) en el nombre de cualquiera de las tasas de impuesto del pedido. Si se encuentra, se saca de las columnas Tax N y se exporta como una línea de producto apuntando a ese Product ID de Shopify, tal y como espera la plantilla del cliente.', 'ivb-shopify-export'); ?>
+            </p>
 
             <form method="post" style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:24px;margin-bottom:28px;display:flex;flex-wrap:wrap;gap:24px;align-items:flex-end;box-shadow:0 2px 8px rgba(0,0,0,.04);max-width:900px;">
                 <?php wp_nonce_field('ise_export'); ?>
@@ -106,6 +134,22 @@ class IVB_Shopify_Export {
             </form>
         </div>
         <?php
+    }
+
+    public function handle_save_settings() {
+        if (empty($_POST['ise_save_settings']) || !current_user_can('manage_woocommerce')) {
+            return;
+        }
+
+        if (!check_admin_referer('ise_settings')) {
+            return;
+        }
+
+        update_option('ise_re_tax_keyword', sanitize_text_field($_POST['ise_re_tax_keyword'] ?? 'recargo'));
+        update_option('ise_re_shopify_product_id', sanitize_text_field($_POST['ise_re_shopify_product_id'] ?? ''));
+
+        wp_safe_redirect(add_query_arg('ise_settings_saved', '1', wp_get_referer() ?: admin_url('admin.php?page=ivb-shopify-export')));
+        exit;
     }
 
     public function handle_export() {

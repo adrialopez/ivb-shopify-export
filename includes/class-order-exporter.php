@@ -67,10 +67,17 @@ class ISE_Order_Exporter {
         $fulfill_lines = ($order->get_status() === 'completed');
         $fulfillment_id = 'F' . $number;
 
+        // El recargo de equivalencia no es un producto en WooCommerce (es un
+        // impuesto compuesto), pero en Shopify se modela como una línea de
+        // producto aparte apuntando a un Product ID fijo (ver configuración
+        // del plugin). Lo sacamos de los totales de impuesto del pedido para
+        // no contarlo dos veces en Tax: Total.
+        $re_amount = $this->re_surcharge_amount($order);
+
         foreach ($line_items as $item) {
             $row = $base;
             if ($first) {
-                $this->fill_order_fields($row, $order);
+                $this->fill_order_fields($row, $order, $re_amount);
                 $this->fill_transaction_fields($row, $order);
                 $first = false;
             }
@@ -81,10 +88,21 @@ class ISE_Order_Exporter {
             $rows[] = $row;
         }
 
+        if ($re_amount > 0.0001) {
+            $row = $base;
+            if ($first) {
+                $this->fill_order_fields($row, $order, $re_amount);
+                $this->fill_transaction_fields($row, $order);
+                $first = false;
+            }
+            $this->fill_re_line_fields($row, $re_amount);
+            $rows[] = $row;
+        }
+
         foreach ($shipping_items as $item) {
             $row = $base;
             if ($first) {
-                $this->fill_order_fields($row, $order);
+                $this->fill_order_fields($row, $order, $re_amount);
                 $this->fill_transaction_fields($row, $order);
                 $first = false;
             }
@@ -95,7 +113,7 @@ class ISE_Order_Exporter {
         foreach ($coupon_items as $item) {
             $row = $base;
             if ($first) {
-                $this->fill_order_fields($row, $order);
+                $this->fill_order_fields($row, $order, $re_amount);
                 $this->fill_transaction_fields($row, $order);
                 $first = false;
             }
@@ -106,7 +124,7 @@ class ISE_Order_Exporter {
         // Si el pedido no tiene ninguna línea (caso raro), al menos una fila con los datos del pedido.
         if (empty($rows)) {
             $row = $base;
-            $this->fill_order_fields($row, $order);
+            $this->fill_order_fields($row, $order, $re_amount);
             $this->fill_transaction_fields($row, $order);
             $rows[] = $row;
         }
@@ -120,7 +138,7 @@ class ISE_Order_Exporter {
         return $rows;
     }
 
-    private function fill_order_fields(array &$row, WC_Order $order) {
+    private function fill_order_fields(array &$row, WC_Order $order, $re_amount = 0.0) {
         $status = $order->get_status();
         $email  = $order->get_billing_email();
         $note   = $order->get_customer_note();
@@ -146,7 +164,9 @@ class ISE_Order_Exporter {
 
         $this->fill_tax_totals($row, $order);
         $row['Tax: Included'] = wc_prices_include_tax() ? 'TRUE' : 'FALSE';
-        $row['Tax: Total']    = $this->money($order->get_total_tax());
+        // El recargo (ya movido a su propia línea de producto) se resta aquí
+        // para no sumarlo dos veces al total del pedido en Shopify.
+        $row['Tax: Total']    = $this->money($order->get_total_tax() - $re_amount);
         $row['Payment: Status'] = $this->map_payment_status($status);
 
         $customer_id = $order->get_customer_id();
@@ -190,6 +210,9 @@ class ISE_Order_Exporter {
         $slots = array(1, 2, 3);
 
         foreach ($tax_totals as $tax_total) {
+            if ($this->is_re_label($tax_total->label)) {
+                continue; // se exporta como línea de producto aparte, ver fill_re_line_fields()
+            }
             $slot = array_shift($slots);
             if (!$slot) {
                 break;
@@ -199,6 +222,43 @@ class ISE_Order_Exporter {
             $row["Tax {$slot}: Rate"]  = $rate !== '' ? $this->num($rate / 100) : '';
             $row["Tax {$slot}: Price"] = $this->money($tax_total->amount);
         }
+    }
+
+    /**
+     * El recargo de equivalencia es un impuesto compuesto en WooCommerce,
+     * pero el cliente lo quiere exportar como una línea de producto propia
+     * en Shopify (ver fill_re_line_fields). El texto que identifica esa tasa
+     * es configurable porque no se conoce el nombre exacto usado en
+     * WooCommerce > Ajustes > Impuestos.
+     */
+    private function is_re_label($label) {
+        $keyword = trim((string) get_option('ise_re_tax_keyword', 'recargo'));
+        return $keyword !== '' && stripos((string) $label, $keyword) !== false;
+    }
+
+    private function re_surcharge_amount(WC_Order $order) {
+        $amount = 0.0;
+        foreach ($order->get_tax_totals() as $tax_total) {
+            if ($this->is_re_label($tax_total->label)) {
+                $amount += (float) $tax_total->amount;
+            }
+        }
+        return $amount;
+    }
+
+    /**
+     * Línea de producto para el recargo de equivalencia, apuntando al ID de
+     * producto fijo en Shopify (configurable), tal y como muestra la fila de
+     * ejemplo de la propia plantilla del cliente (Product ID 14932398932333,
+     * Title "re").
+     */
+    private function fill_re_line_fields(array &$row, $amount) {
+        $row['Line: Type']       = 'Line Item';
+        $row['Line: Product ID'] = trim((string) get_option('ise_re_shopify_product_id', '14932398932333'));
+        $row['Line: Title']      = 're';
+        $row['Line: Quantity']   = 1;
+        $row['Line: Price']      = $this->money($amount);
+        $row['Line: Gift Card']  = 'FALSE';
     }
 
     private function fill_transaction_fields(array &$row, WC_Order $order) {
