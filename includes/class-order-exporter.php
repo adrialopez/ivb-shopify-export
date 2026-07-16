@@ -29,6 +29,9 @@ class ISE_Order_Exporter {
     /** @var int contador global de "Number" de pedido, incremental para todo el export */
     private $sequence = 0;
 
+    /** @var int[]|null caché de rate_ids de recargo, calculada una vez por export */
+    private $re_rate_ids = null;
+
     public function reset_sequence() {
         $this->sequence = 0;
     }
@@ -210,7 +213,7 @@ class ISE_Order_Exporter {
         $slots = array(1, 2, 3);
 
         foreach ($tax_totals as $tax_total) {
-            if ($this->is_re_label($tax_total->label)) {
+            if ($this->is_re_rate($tax_total)) {
                 continue; // se exporta como línea de producto aparte, ver fill_re_line_fields()
             }
             $slot = array_shift($slots);
@@ -225,21 +228,55 @@ class ISE_Order_Exporter {
     }
 
     /**
-     * El recargo de equivalencia es un impuesto compuesto en WooCommerce,
-     * pero el cliente lo quiere exportar como una línea de producto propia
-     * en Shopify (ver fill_re_line_fields). El texto que identifica esa tasa
-     * es configurable porque no se conoce el nombre exacto usado en
-     * WooCommerce > Ajustes > Impuestos.
+     * El recargo de equivalencia (RE) en esta tienda vive dentro de clases de
+     * impuesto dedicadas ("Tarifas estándar + RE", "Tarifas Tasa reducida +
+     * RE" — ver WooCommerce > Ajustes > Impuestos), cada una con DOS tasas:
+     * la base (21% o 10%) y el propio recargo (5,2% o 1,4%, los porcentajes
+     * fijados por ley para RE). Identificamos la tasa de recargo por ser la
+     * que, dentro de esas clases, coincide con uno de esos porcentajes
+     * legales — así no dependemos de cómo esté escrito el nombre de la tasa.
+     * Como red de seguridad, también se acepta que el nombre contenga el
+     * texto configurado (por defecto "recargo").
      */
-    private function is_re_label($label) {
+    private function is_re_rate($tax_total) {
+        if (in_array((int) $tax_total->rate_id, $this->re_rate_ids(), true)) {
+            return true;
+        }
         $keyword = trim((string) get_option('ise_re_tax_keyword', 'recargo'));
-        return $keyword !== '' && stripos((string) $label, $keyword) !== false;
+        return $keyword !== '' && stripos((string) $tax_total->label, $keyword) !== false;
+    }
+
+    private function re_rate_ids() {
+        if ($this->re_rate_ids !== null) {
+            return $this->re_rate_ids;
+        }
+
+        // Porcentajes de recargo de equivalencia fijados por ley en España
+        // (general 5,2 %, reducido 1,4 %, superreducido 0,5 %, tabaco 1,75 %).
+        $re_percentages = array(0.5, 1.4, 1.75, 5.2);
+        $classes = array_filter(array_map('trim', explode(
+            ',',
+            (string) get_option('ise_re_tax_classes', 'estandar-re,tasa-reducida-re')
+        )));
+
+        $rate_ids = array();
+        foreach ($classes as $class) {
+            foreach (WC_Tax::get_rates_for_tax_class($class) as $rate) {
+                $percent = round((float) $rate->tax_rate, 2);
+                if (in_array($percent, $re_percentages, true)) {
+                    $rate_ids[] = (int) $rate->tax_rate_id;
+                }
+            }
+        }
+
+        $this->re_rate_ids = $rate_ids;
+        return $rate_ids;
     }
 
     private function re_surcharge_amount(WC_Order $order) {
         $amount = 0.0;
         foreach ($order->get_tax_totals() as $tax_total) {
-            if ($this->is_re_label($tax_total->label)) {
+            if ($this->is_re_rate($tax_total)) {
                 $amount += (float) $tax_total->amount;
             }
         }

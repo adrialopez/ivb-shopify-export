@@ -78,25 +78,38 @@ una línea de producto aparte apuntando a un Product ID fijo ya creado en la
 tienda — así lo muestra la fila de ejemplo de su propia plantilla
 (`Product ID 14932398932333`, `Title "re"`).
 
-WooCommerce → **Exportar a Shopify** tiene un bloque de configuración con
-dos campos (persistidos como opciones de WordPress, no hay que repetirlos
-en cada export):
+La tienda tiene 5 clases de impuesto en WooCommerce > Ajustes > Impuestos:
+`standard`, `estandar-re`, `tasa-reducida`, `tasa-reducida-re` y
+`tasa-cero`. El RE solo existe dentro de las clases `+ RE`, cada una con
+DOS tasas: la base (21 % o 10 %) y el propio recargo (5,2 % o 1,4 %, los
+porcentajes que fija la ley española para RE). La mayoría de productos van
+en `tasa-reducida` (10 %), pero algunas líneas —como el envío— van en
+`standard` (21 %); ambos casos se exportan igual en `Tax 1`/`Tax 2`, sin
+relación con el RE.
 
-- **Texto que identifica el recargo** en el nombre de la tasa de impuesto
-  (WooCommerce > Ajustes > Impuestos), por defecto `recargo`. Se busca sin
-  distinguir mayúsculas en el label de cada tasa del pedido
-  (`$order->get_tax_totals()`).
+**Detección del recargo**: en vez de adivinar por el nombre de la tasa, se
+identifica de forma estructural — se consultan las tasas configuradas en
+las clases `+ RE` (`WC_Tax::get_rates_for_tax_class()`) y se toma la que
+coincide con uno de los porcentajes legales de RE (5,2 %, 1,4 %, 0,5 %,
+1,75 %). Como red de seguridad adicional, también se acepta que el nombre
+de la tasa contenga un texto configurable (por defecto `recargo`).
+
+WooCommerce → **Exportar a Shopify** tiene un bloque de configuración con
+tres campos (persistidos como opciones de WordPress, no hay que
+repetirlos en cada export):
+
+- **Clases de impuesto con recargo** (slugs separados por coma), por
+  defecto `estandar-re,tasa-reducida-re`.
+- **Texto de respaldo** en el nombre de la tasa, por defecto `recargo`.
 - **Product ID en Shopify** al que debe apuntar esa línea, por defecto
   `14932398932333` (el de la plantilla del cliente).
 
 Cuando se detecta esa tasa: se excluye de las columnas `Tax N`, se resta de
 `Tax: Total` (para no contarla dos veces en el total del pedido) y se
 añade una fila `Line Item` con ese Product ID, cantidad 1 y precio = el
-importe del recargo de ese pedido.
-
-**Pendiente de confirmar con el cliente**: el nombre exacto de la tasa en
-WooCommerce > Ajustes > Impuestos — revisarlo y ajustar el campo de
-configuración si no contiene la palabra "recargo".
+importe del recargo de ese pedido (sumando ambas clases `+ RE` si en el
+mismo pedido hay líneas de las dos, p.ej. la mayoría de productos a tasa
+reducida + RE y alguno a estándar + RE).
 
 ## Rendimiento en exports grandes
 
