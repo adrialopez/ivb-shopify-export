@@ -13,6 +13,14 @@ puede importarse directamente con Matrixify en Shopify.
 Cada pedido genera varias filas (una por línea de producto, envío y
 descuento) agrupadas por la columna `Number`, tal y como espera Matrixify.
 
+**Vínculo con productos existentes en Shopify**: el CSV solo manda
+`Line: SKU` (no `Product ID` ni `Product Handle`), así que Matrixify
+vincula cada línea al producto de Shopify que tenga ese SKU. El nombre del
+producto **no** tiene que coincidir entre WooCommerce y Shopify — solo el
+SKU. Si un SKU no existe en Shopify, Matrixify crea un producto nuevo con
+ese SKU en vez de fallar (revisar el resultado del import para detectar
+SKUs que no debían ser nuevos, p.ej. por errores tipográficos).
+
 ## Asunciones tomadas (revisar antes de la migración definitiva)
 
 Basadas en la [documentación oficial de Matrixify Orders](https://matrixify.app/documentation/orders/):
@@ -38,6 +46,17 @@ Basadas en la [documentación oficial de Matrixify Orders](https://matrixify.app
   devuelto con cantidad en negativo, más `Transaction: Kind = refund`.
   `Refund: Generate Transaction = FALSE` porque la transacción ya se añade
   explícitamente (evita duplicarla).
+- Fulfillment: si el pedido está `completed` en WooCommerce, se rellenan los
+  campos `Fulfillment: *` en **cada** fila `Line Item` del pedido (con el
+  mismo `Fulfillment: ID`) para que Shopify marque el pedido como enviado
+  por completo. Rellenarlo solo en una línea (como hacía la v0.1.1) deja el
+  pedido en estado `partial` en Shopify, aunque esté completado en origen.
+- Los importes (`Line: Price`, `Line: Discount`, `Tax N: Price`,
+  `Transaction: Amount`...) se redondean a los decimales de la divisa de la
+  tienda (`wc_get_price_decimals()`, normalmente 2) en vez de a 4 — con más
+  precisión de la cuenta, Shopify puede recalcular el total del pedido con
+  unos céntimos de diferencia y dejar el pedido con "Total Outstanding"
+  distinto de cero.
 - `Transaction: Force Gateway` y `Transaction: Test` siempre `FALSE`, para
   no arriesgarse a disparar cargos reales en la pasarela durante la
   migración.
