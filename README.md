@@ -41,7 +41,14 @@ Basadas en la [documentación oficial de Matrixify Orders](https://matrixify.app
   `fixed_amount` (no el código del cupón), `Line: Price` es el valor del
   descuento (% o importe fijo), y `Line: Discount` es el importe realmente
   aplicado, en negativo — tal cual se ve en la fila de ejemplo de la
-  plantilla del cliente.
+  plantilla del cliente. El descuento se exporta **solo** en esta fila a
+  nivel de pedido, nunca repetido en `Line: Discount` de cada `Line Item`
+  (WooCommerce ya reduce el `total` de cada línea al aplicar el cupón; si
+  además se repite ahí, Shopify lo resta dos veces y el pedido queda con
+  un "reembolso adeudado" del importe del descuento). Asume que todo
+  descuento viene de un cupón (`$order->get_items('coupon')`) — un ajuste
+  manual de precio por línea sin cupón asociado no se reflejaría en
+  ningún sitio del export.
 - Reembolsos: una fila `Refund Line` (o `Refund Shipping`) por artículo
   devuelto con cantidad en negativo, más `Transaction: Kind = refund`.
   `Refund: Generate Transaction = FALSE` porque la transacción ya se añade

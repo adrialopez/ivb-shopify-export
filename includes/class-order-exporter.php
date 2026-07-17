@@ -14,8 +14,10 @@ if (!defined('ABSPATH')) {
  * - Se añade la etiqueta "SINCRONIZADO" en Tags (obligatorio según nota de la plantilla,
  *   si no se generan facturas de nuevo).
  * - "Source" = web (no hay forma fiable de distinguir canal en WooCommerce).
- * - "Line: Price" es el precio unitario ANTES de descuento; el descuento de línea
- *   (si lo hay) va en "Line: Discount".
+ * - "Line: Price" es el precio unitario BRUTO (antes de descuento). El
+ *   descuento del cupón se exporta UNA sola vez, a nivel de pedido (fila
+ *   "Discount"), nunca repetido también en cada "Line Item" — si no, Shopify
+ *   lo resta dos veces del total.
  * - Company (B2B) no se exporta — no aplica al modelo de datos actual.
  * - Impuestos SOLO a nivel de pedido (Tax 1/2/3), nunca también a nivel de línea:
  *   Matrixify indica explícitamente que rellenar ambos duplica/falla el import.
@@ -333,17 +335,16 @@ class ISE_Order_Exporter {
         $qty      = max(1, (int) $item->get_quantity());
         $product  = $item->get_product();
         $subtotal = (float) $item->get_subtotal();
-        $total    = (float) $item->get_total();
-        $discount = $subtotal - $total;
 
         $row['Line: Type']              = 'Line Item';
         $row['Line: Title']             = $item->get_name();
         $row['Line: SKU']               = $product ? $product->get_sku() : '';
         $row['Line: Quantity']          = $qty;
+        // Precio unitario BRUTO (antes de cupón). El descuento del cupón NO se
+        // repite aquí: ya se exporta una vez, a nivel de pedido, en la fila
+        // "Discount" (fill_discount_line_fields). Ponerlo también aquí lo
+        // restaría dos veces del total en Shopify.
         $row['Line: Price']             = $this->money($subtotal / $qty);
-        if ($discount > 0.0001) {
-            $row['Line: Discount'] = $this->money($discount);
-        }
         $row['Line: Requires Shipping'] = ($product && $product->needs_shipping()) ? 'TRUE' : 'FALSE';
         $row['Line: Taxable']           = ((float) $item->get_total_tax() > 0 || wc_prices_include_tax()) ? 'TRUE' : 'FALSE';
         $row['Line: Gift Card']         = 'FALSE';
