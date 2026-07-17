@@ -51,6 +51,8 @@ Basadas en la [documentación oficial de Matrixify Orders](https://matrixify.app
   mismo `Fulfillment: ID`) para que Shopify marque el pedido como enviado
   por completo. Rellenarlo solo en una línea (como hacía la v0.1.1) deja el
   pedido en estado `partial` en Shopify, aunque esté completado en origen.
+  `Fulfillment: ID` es el propio `Number` del pedido (Matrixify exige que
+  sea numérico, no admite prefijos de texto).
 - Los importes (`Line: Price`, `Line: Discount`, `Tax N: Price`,
   `Transaction: Amount`...) se redondean a los decimales de la divisa de la
   tienda (`wc_get_price_decimals()`, normalmente 2) en vez de a 4 — con más

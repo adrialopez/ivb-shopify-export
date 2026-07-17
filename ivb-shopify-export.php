@@ -3,7 +3,7 @@
  * Plugin Name: IVB Shopify Export
  * Plugin URI: https://thinkingidea.com/
  * Description: Exporta pedidos de WooCommerce al formato Matrixify (Orders) para la migración a Shopify. Filtro por fechas y/o cliente.
- * Version: 0.2.1
+ * Version: 0.2.2
  * Author: Thinking Idea
  * Author URI: https://thinkingidea.com/
  * Text Domain: ivb-shopify-export
@@ -25,7 +25,7 @@ if (!in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get
     return;
 }
 
-define('ISE_VERSION', '0.2.1');
+define('ISE_VERSION', '0.2.2');
 define('ISE_PLUGIN_DIR', plugin_dir_path(__FILE__));
 
 require_once ISE_PLUGIN_DIR . 'includes/class-matrixify-columns.php';

@@ -68,7 +68,10 @@ class ISE_Order_Exporter {
         // campos, así que si solo se ponen en una línea el pedido queda
         // "partial" en Shopify aunque esté completado en WooCommerce.
         $fulfill_lines = ($order->get_status() === 'completed');
-        $fulfillment_id = 'F' . $number;
+        // Fulfillment: ID debe ser numérico para Matrixify (no admite prefijos
+        // de texto); reutilizamos el propio Number del pedido, que ya es único
+        // dentro de este export.
+        $fulfillment_id = $number;
 
         // El recargo de equivalencia no es un producto en WooCommerce (es un
         // impuesto compuesto), pero en Shopify se modela como una línea de
