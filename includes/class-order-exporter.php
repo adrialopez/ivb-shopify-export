@@ -178,9 +178,14 @@ class ISE_Order_Exporter {
 
         $this->fill_tax_totals($row, $order);
         $row['Tax: Included'] = wc_prices_include_tax() ? 'TRUE' : 'FALSE';
-        // El recargo (ya movido a su propia línea de producto) se resta aquí
-        // para no sumarlo dos veces al total del pedido en Shopify.
-        $row['Tax: Total']    = $this->money($order->get_total_tax() - $re_amount);
+        // Tax: Total no se recalcula por Shopify a partir de las líneas: se sube
+        // tal cual y se suma al total del pedido. En vez de restar el recargo del
+        // total de impuestos de WooCommerce (arrastrando cualquier redondeo de
+        // cada pieza por separado), lo calculamos como la cifra que hace que
+        // Subtotal - Descuento + Envío + Tax: Total cuadre EXACTAMENTE con lo que
+        // el cliente pagó de verdad — así nunca queda un céntimo suelto que
+        // Shopify interprete como "reembolso adeudado".
+        $row['Tax: Total'] = $this->money($this->reconciled_tax_total($order, $re_amount));
         $row['Payment: Status'] = $this->map_payment_status($status);
 
         $customer_id = $order->get_customer_id();
@@ -292,6 +297,40 @@ class ISE_Order_Exporter {
             }
         }
         return $amount;
+    }
+
+    /**
+     * Calcula Tax: Total como la cifra que cuadra exactamente el pedido, en
+     * vez de restar el recargo del total de impuestos de WooCommerce (que
+     * puede arrastrar redondeos de un céntimo entre las distintas piezas).
+     * Reproduce con los MISMOS redondeos (a 2 decimales por línea) que se
+     * usan al generar cada fila, para que la suma cuadre con lo realmente
+     * cobrado sin que sobre ni falte un céntimo.
+     */
+    private function reconciled_tax_total(WC_Order $order, $re_amount) {
+        $decimals = function_exists('wc_get_price_decimals') ? wc_get_price_decimals() : 2;
+        $target   = round((float) ($order->get_total() - $order->get_total_refunded()), $decimals);
+
+        $lines_total = 0.0;
+        foreach ($order->get_items('line_item') as $item) {
+            $qty  = max(1, (int) $item->get_quantity());
+            $unit = round((float) $item->get_subtotal() / $qty, $decimals);
+            $lines_total += $unit * $qty;
+        }
+
+        $shipping_total = 0.0;
+        foreach ($order->get_items('shipping') as $item) {
+            $shipping_total += round((float) $item->get_total(), $decimals);
+        }
+
+        $discount_total = 0.0;
+        foreach ($order->get_items('coupon') as $item) {
+            $discount_total += round((float) $item->get_discount(), $decimals);
+        }
+
+        $re_total = round((float) $re_amount, $decimals);
+
+        return $target - ($lines_total + $shipping_total + $re_total - $discount_total);
     }
 
     /**

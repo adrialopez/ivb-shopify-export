@@ -71,6 +71,15 @@ Basadas en la [documentación oficial de Matrixify Orders](https://matrixify.app
   precisión de la cuenta, Shopify puede recalcular el total del pedido con
   unos céntimos de diferencia y dejar el pedido con "Total Outstanding"
   distinto de cero.
+- `Tax: Total` **no** es el total de impuestos de WooCommerce menos el
+  recargo — Shopify usa este campo tal cual (no lo recalcula a partir de
+  `Tax 1`/`Tax 2`), así que se calcula como la cifra que hace que
+  `Subtotal - Descuento + Envío + Tax: Total` cuadre EXACTAMENTE con lo
+  que el cliente pagó de verdad (`reconciled_tax_total()`, reproduciendo
+  los mismos redondeos por línea que se usan al generar cada fila). Así
+  no queda nunca un céntimo suelto que Shopify interprete como "reembolso
+  adeudado" o "saldo pendiente", aunque `Tax 1`/`Tax 2` (que son solo
+  informativos) puedan diferir en un céntimo del `Tax: Total` real.
 - `Transaction: Force Gateway` y `Transaction: Test` siempre `FALSE`, para
   no arriesgarse a disparar cargos reales en la pasarela durante la
   migración.
