@@ -319,10 +319,14 @@ class ISE_Order_Exporter {
     }
 
     private function fill_fulfillment_fields(array &$row, WC_Order $order, $fulfillment_id) {
-        $row['Fulfillment: ID']           = $fulfillment_id;
-        $row['Fulfillment: Status']       = 'success';
-        $row['Fulfillment: Processed At'] = $this->format_date($order->get_date_completed() ?: $order->get_date_modified());
-        $row['Fulfillment: Send Receipt'] = 'FALSE';
+        $row['Fulfillment: ID']              = $fulfillment_id;
+        $row['Fulfillment: Status']          = 'success';
+        $row['Fulfillment: Processed At']    = $this->format_date($order->get_date_completed() ?: $order->get_date_modified());
+        // Obligatorio en cuanto se rellena "Fulfillment: Processed At": todos
+        // estos pedidos están completados en WooCommerce, así que se marcan
+        // como entregados.
+        $row['Fulfillment: Shipment Status'] = 'delivered';
+        $row['Fulfillment: Send Receipt']    = 'FALSE';
     }
 
     private function fill_line_item_fields(array &$row, WC_Order_Item_Product $item) {
