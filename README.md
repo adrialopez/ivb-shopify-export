@@ -61,7 +61,10 @@ Basadas en la [documentación oficial de Matrixify Orders](https://matrixify.app
   `Fulfillment: ID` es el propio `Number` del pedido (Matrixify exige que
   sea numérico, no admite prefijos de texto). `Fulfillment: Shipment
   Status` = `delivered` siempre que se rellena `Fulfillment: Processed
-  At` (Matrixify lo exige en cuanto se pone esa fecha).
+  At` (Matrixify lo exige en cuanto se pone esa fecha). La línea del
+  recargo de equivalencia también se marca como entregada (aunque no sea
+  un envío físico), para que el pedido histórico quede 100% "Entregado"
+  sin ninguna línea pendiente.
 - Los importes (`Line: Price`, `Line: Discount`, `Tax N: Price`,
   `Transaction: Amount`...) se redondean a los decimales de la divisa de la
   tienda (`wc_get_price_decimals()`, normalmente 2) en vez de a 4 — con más

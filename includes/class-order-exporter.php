@@ -104,6 +104,12 @@ class ISE_Order_Exporter {
                 $first = false;
             }
             $this->fill_re_line_fields($row, $re_amount);
+            if ($fulfill_lines) {
+                // Aunque no es un envío físico, se marca como entregada igual
+                // que el resto de líneas para que el pedido histórico quede
+                // completamente "Entregado" y no se quede un pendiente colgado.
+                $this->fill_fulfillment_fields($row, $order, $fulfillment_id);
+            }
             $rows[] = $row;
         }
 
