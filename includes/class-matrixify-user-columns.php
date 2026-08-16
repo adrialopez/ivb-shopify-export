@@ -35,10 +35,13 @@ class ISE_Matrixify_User_Columns {
      */
     const CAMPOS_CON_DATO = array(
         'historico_unidades',
+        'unidades_compradas_mes',
         'sepa_disponible',
         'minimo_sepa',
         'limite_credito_sepa',
         'maximo_unidades_mes',
+        'escala_actual',
+        'escala_forzada',
     );
 
     public static function metafields() {

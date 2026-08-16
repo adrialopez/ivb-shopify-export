@@ -45,9 +45,9 @@ class ISE_User_Exporter {
     }
 
     /**
-     * Los 5 metacampos que hoy se pueden calcular con datos ya presentes en
+     * Los metacampos que hoy se pueden calcular con datos ya presentes en
      * WordPress. La misma lógica de la query SQL manual (ver conversación):
-     * capabilities, límites de compra mensuales y SEPA.
+     * capabilities, límites de compra mensuales, SEPA y escala.
      *
      * @return array key (sin prefijo upng.) => valor
      */
@@ -71,24 +71,63 @@ class ISE_User_Exporter {
         $sepa_minimo = get_user_meta($user_id, 'sepa_min_amount', true);
         $sepa_minimo = $sepa_minimo !== '' ? $sepa_minimo : '300';
 
-        // Este es upng.historico_unidades (total histórico acumulado), NO
-        // upng.unidades_compradas_mes (mes en curso, sin meta_key propio hoy:
-        // se calcula al vuelo por producto en el plugin de límites — ver
-        // get_user_monthly_purchase_count() — y aquí se deja vacío).
         $historico_unidades = get_user_meta($user_id, 'unidadesCompradas', true);
 
+        // escalaAuto ya trae calculada la escala según el rol de descuento del
+        // usuario (5desc=1, 10desc=2, 15desc=3, 175desc=3.5, 20desc=4, sin
+        // ninguno de esos roles=0). Cuando vale 0 (sin rol de escala), el
+        // cliente marca la escala como forzada manualmente.
+        $escala_actual  = get_user_meta($user_id, 'escalaAuto', true);
+        $escala_forzada = ((string) $escala_actual === '0') ? 'TRUE' : 'FALSE';
+
         return array(
-            'historico_unidades'   => $historico_unidades,
-            'sepa_disponible'      => $sepa_disponible,
-            'minimo_sepa'          => $sepa_minimo,
-            'limite_credito_sepa'  => $sepa_maximo_efectivo,
+            'historico_unidades'     => $historico_unidades,
+            'unidades_compradas_mes' => $this->monthly_purchased_units($user_id),
+            'sepa_disponible'        => $sepa_disponible,
+            'minimo_sepa'            => $sepa_minimo,
+            'limite_credito_sepa'    => $sepa_maximo_efectivo,
             // purchase_limit_enabled controla si el tope de abajo se aplica o
             // no; no hay columna upng.* separada para "límite activo" en la
             // lista de 30, así que monthly_purchase_limit solo se exporta si
             // el límite está encendido.
-            'maximo_unidades_mes'  => get_user_meta($user_id, 'purchase_limit_enabled', true) == 1
+            'maximo_unidades_mes'    => get_user_meta($user_id, 'purchase_limit_enabled', true) == 1
                 ? get_user_meta($user_id, 'monthly_purchase_limit', true)
                 : '',
+            'escala_actual'          => $escala_actual,
+            'escala_forzada'         => $escala_forzada,
         );
+    }
+
+    /**
+     * Unidades totales compradas en el mes en curso, TODOS los productos.
+     *
+     * Adaptado de get_user_monthly_purchase_count() del plugin de límites de
+     * compra: misma fuente (line items de pedidos completed/processing) y
+     * mismo rango de fechas, pero sin filtrar por producto — ahí se usa para
+     * comprobar el límite de UN producto, aquí para el total del mes.
+     */
+    private function monthly_purchased_units($user_id) {
+        global $wpdb;
+
+        $start_date = gmdate('Y-m-01 00:00:00');
+        $end_date   = gmdate('Y-m-t 23:59:59');
+
+        $total = $wpdb->get_var($wpdb->prepare(
+            "SELECT SUM(oim.meta_value) as total_quantity
+            FROM {$wpdb->prefix}woocommerce_order_items as oi
+            JOIN {$wpdb->prefix}woocommerce_order_itemmeta as oim ON oi.order_item_id = oim.order_item_id
+            JOIN {$wpdb->posts} as p ON oi.order_id = p.ID
+            WHERE p.post_type = 'shop_order'
+            AND p.post_status IN ('wc-completed', 'wc-processing')
+            AND p.post_author = %d
+            AND oi.order_item_type = 'line_item'
+            AND oim.meta_key = '_qty'
+            AND p.post_date BETWEEN %s AND %s",
+            $user_id,
+            $start_date,
+            $end_date
+        ));
+
+        return $total !== null ? (int) $total : 0;
     }
 }
