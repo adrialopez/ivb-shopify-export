@@ -3,7 +3,7 @@
  * Plugin Name: IVB Shopify Export
  * Plugin URI: https://thinkingidea.com/
  * Description: Exporta pedidos de WooCommerce al formato Matrixify (Orders) y usuarios/empresas (Customers/Companies) para la migración a Shopify. Filtro por fechas y/o cliente.
- * Version: 0.9.4
+ * Version: 0.9.5
  * Author: Thinking Idea
  * Author URI: https://thinkingidea.com/
  * Text Domain: ivb-shopify-export
@@ -25,7 +25,7 @@ if (!in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get
     return;
 }
 
-define('ISE_VERSION', '0.9.4');
+define('ISE_VERSION', '0.9.5');
 define('ISE_PLUGIN_DIR', plugin_dir_path(__FILE__));
 
 require_once ISE_PLUGIN_DIR . 'includes/class-matrixify-columns.php';
@@ -179,13 +179,6 @@ class IVB_Shopify_Export {
                             <option value="<?php echo esc_attr($slug); ?>"><?php echo esc_html($label); ?></option>
                         <?php endforeach; ?>
                     </select>
-                </div>
-
-                <div>
-                    <label>
-                        <input type="checkbox" name="solo_con_empresa" value="1" checked>
-                        <?php esc_html_e('Solo usuarios con empresa asociada (billing_company)', 'ivb-shopify-export'); ?>
-                    </label>
                 </div>
 
                 <div>
@@ -520,21 +513,11 @@ class IVB_Shopify_Export {
             return;
         }
 
-        $role            = sanitize_key($_POST['role'] ?? '');
-        $solo_con_empresa = !empty($_POST['solo_con_empresa']);
+        $role = sanitize_key($_POST['role'] ?? '');
 
         $args = array('fields' => 'ID');
         if ($role !== '') {
             $args['role'] = $role;
-        }
-        if ($solo_con_empresa) {
-            $args['meta_query'] = array(
-                array(
-                    'key'     => 'billing_company',
-                    'value'   => '',
-                    'compare' => '!=',
-                ),
-            );
         }
 
         if (function_exists('wp_raise_memory_limit')) {
@@ -554,8 +537,8 @@ class IVB_Shopify_Export {
         $filename = 'shopify-usuarios-' . gmdate('Y-m-d-His') . '.csv';
         $builder  = array($exporter, 'row_for_user');
 
-        $this->log(sprintf('--- Export usuarios iniciado: %d usuarios (rol: %s, solo con empresa: %s) ---',
-            count($user_ids), $role ?: 'todos', $solo_con_empresa ? 'sí' : 'no'));
+        $this->log(sprintf('--- Export usuarios iniciado: %d usuarios (rol: %s) ---',
+            count($user_ids), $role ?: 'todos'));
 
         try {
             $writer = new ISE_CSV_Writer(null, $headers);
