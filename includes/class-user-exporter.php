@@ -130,12 +130,14 @@ class ISE_User_Exporter {
      * Límite máximo de gasto SEPA por defecto según el rol de escala del
      * usuario, igual que sepa_get_default_max_amount() del plugin de SEPA:
      * 20desc y 15desc -> 20000, 10desc -> 10000, el resto (5desc o ningún
-     * rol de escala) -> 6000.
+     * rol de escala) -> 6000. sepa_get_default_max_amount() no contempla
+     * 175desc (escala 3.5) explícitamente, pero al ser un nivel intermedio
+     * entre 15desc y 20desc (ambos 20000) se asume el mismo límite.
      */
     private function sepa_max_por_rol(WP_User $user) {
         $roles = (array) $user->roles;
 
-        if (in_array('20desc', $roles, true) || in_array('15desc', $roles, true)) {
+        if (in_array('20desc', $roles, true) || in_array('175desc', $roles, true) || in_array('15desc', $roles, true)) {
             return '20000';
         }
         if (in_array('10desc', $roles, true)) {
