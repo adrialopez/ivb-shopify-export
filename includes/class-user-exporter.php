@@ -73,12 +73,12 @@ class ISE_User_Exporter {
 
         $historico_unidades = get_user_meta($user_id, 'unidadesCompradas', true);
 
-        // escalaAuto ya trae calculada la escala según el rol de descuento del
-        // usuario (5desc=1, 10desc=2, 15desc=3, 175desc=3.5, 20desc=4, sin
-        // ninguno de esos roles=0). Cuando vale 0 (sin rol de escala), el
-        // cliente marca la escala como forzada manualmente.
-        $escala_actual  = get_user_meta($user_id, 'escalaAuto', true);
-        $escala_forzada = ((string) $escala_actual === '0') ? 'TRUE' : 'FALSE';
+        // escala_actual sale del rol de descuento del usuario, NO de
+        // escalaAuto. escalaAuto solo se usa para escala_forzada: si vale 0
+        // (sin rol de escala), el cliente marca la escala como forzada
+        // manualmente.
+        $escala_actual  = $this->escala_por_rol($user);
+        $escala_forzada = ((string) get_user_meta($user_id, 'escalaAuto', true) === '0') ? 'TRUE' : 'FALSE';
 
         // purchase_limit_enabled controla tanto si el tope mensual aplica como
         // si tiene sentido calcular lo comprado en lo que va de mes: sin
@@ -98,6 +98,28 @@ class ISE_User_Exporter {
             'escala_actual'          => $escala_actual,
             'escala_forzada'         => $escala_forzada,
         );
+    }
+
+    /**
+     * Escala según el rol de descuento del usuario. Un usuario solo debería
+     * tener uno de estos roles; si tuviera varios, gana el de mayor escala.
+     */
+    private function escala_por_rol(WP_User $user) {
+        $mapa_roles = array(
+            '20desc'  => '4',
+            '175desc' => '3.5',
+            '15desc'  => '3',
+            '10desc'  => '2',
+            '5desc'   => '1',
+        );
+
+        foreach ($mapa_roles as $role => $escala) {
+            if (in_array($role, (array) $user->roles, true)) {
+                return $escala;
+            }
+        }
+
+        return '0';
     }
 
     /**
