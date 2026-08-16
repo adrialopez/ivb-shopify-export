@@ -4,67 +4,41 @@ if (!defined('ABSPATH')) {
 }
 
 /**
- * Convierte usuarios de WordPress/WooCommerce a filas Matrixify "Customers"
- * y "Companies" (con metacampos upng.*), siguiendo la misma lógica que la
- * query SQL manual que se usaba antes de tener este plugin.
+ * Convierte usuarios de WordPress/WooCommerce a filas para el CSV de
+ * usuarios/empresas (ver ISE_Matrixify_User_Columns), siguiendo la misma
+ * lógica que la query SQL manual que se usaba antes de tener este plugin.
  *
  * Solo una parte de los 30 metacampos de empresa tiene hoy un meta_key de
- * origen conocido (ver ISE_Matrixify_Company_Columns::CAMPOS_CON_DATO); el
+ * origen conocido (ver ISE_Matrixify_User_Columns::CAMPOS_CON_DATO); el
  * resto se deja vacío hasta localizar su meta_key real en ivb_usermeta.
  */
 class ISE_User_Exporter {
 
     /**
      * @param WP_User $user
-     * @return array fila con la estructura de ISE_Matrixify_Customer_Columns
+     * @return array fila con la estructura de ISE_Matrixify_User_Columns
      */
-    public function row_for_customer(WP_User $user) {
-        $row = array_fill_keys(ISE_Matrixify_Customer_Columns::headers(), '');
+    public function row_for_user(WP_User $user) {
+        $row = array_fill_keys(ISE_Matrixify_User_Columns::headers(), '');
 
-        $row['Command']    = 'NEW';
-        $row['First Name'] = get_user_meta($user->ID, 'billing_first_name', true) ?: $user->first_name;
-        $row['Last Name']  = get_user_meta($user->ID, 'billing_last_name', true) ?: $user->last_name;
-        $row['Email']      = $user->user_email;
-        $row['Company']    = get_user_meta($user->ID, 'billing_company', true);
-        $row['Address1']   = get_user_meta($user->ID, 'billing_address_1', true);
-        $row['Address2']   = get_user_meta($user->ID, 'billing_address_2', true);
-        $row['City']       = get_user_meta($user->ID, 'billing_city', true);
-        $row['Province']   = get_user_meta($user->ID, 'billing_state', true);
-        $row['Zip']        = get_user_meta($user->ID, 'billing_postcode', true);
-        $row['Country']    = get_user_meta($user->ID, 'billing_country', true);
-        $row['Phone']      = get_user_meta($user->ID, 'billing_phone', true);
-        $row['Woo User ID'] = $user->ID;
-
-        return $row;
-    }
-
-    /**
-     * @param WP_User $user
-     * @return array fila con la estructura de ISE_Matrixify_Company_Columns
-     */
-    public function row_for_company(WP_User $user) {
-        $row = array_fill_keys(ISE_Matrixify_Company_Columns::headers(), '');
-
-        $row['Command']         = 'NEW';
-        $row['Company: Name']   = get_user_meta($user->ID, 'billing_company', true);
         $row['Customer: ID']    = $user->ID;
         $row['Customer: Email'] = $user->user_email;
-
-        $row['Location: Name']       = get_user_meta($user->ID, 'billing_company', true);
-        $row['Location: Address 1']  = get_user_meta($user->ID, 'billing_address_1', true);
-        $row['Location: Address 2']  = get_user_meta($user->ID, 'billing_address_2', true);
-        $row['Location: City']       = get_user_meta($user->ID, 'billing_city', true);
-        $row['Location: Province']   = get_user_meta($user->ID, 'billing_state', true);
-        $row['Location: Zip']        = get_user_meta($user->ID, 'billing_postcode', true);
-        $row['Location: Country']    = get_user_meta($user->ID, 'billing_country', true);
-        $row['Location: Phone']      = get_user_meta($user->ID, 'billing_phone', true);
-
-        $row['NIF']               = get_user_meta($user->ID, 'cif', true);
+        $row['First Name']      = get_user_meta($user->ID, 'billing_first_name', true) ?: $user->first_name;
+        $row['Last Name']       = get_user_meta($user->ID, 'billing_last_name', true) ?: $user->last_name;
+        $row['Phone']           = get_user_meta($user->ID, 'billing_phone', true);
+        $row['Company: Name']   = get_user_meta($user->ID, 'billing_company', true);
+        $row['Address 1']       = get_user_meta($user->ID, 'billing_address_1', true);
+        $row['Address 2']       = get_user_meta($user->ID, 'billing_address_2', true);
+        $row['City']            = get_user_meta($user->ID, 'billing_city', true);
+        $row['Province']        = get_user_meta($user->ID, 'billing_state', true);
+        $row['Zip']             = get_user_meta($user->ID, 'billing_postcode', true);
+        $row['Country']         = get_user_meta($user->ID, 'billing_country', true);
+        $row['NIF']              = get_user_meta($user->ID, 'cif', true);
         $row['Codigo Cliente A3'] = get_user_meta($user->ID, 'unique_identifier', true);
 
         foreach ($this->company_metafields($user) as $key => $value) {
-            $type = ISE_Matrixify_Company_Columns::metafields()[$key];
-            $row[ISE_Matrixify_Company_Columns::metafield_column($key, $type)] = $value;
+            $type = ISE_Matrixify_User_Columns::metafields()[$key];
+            $row[ISE_Matrixify_User_Columns::metafield_column($key, $type)] = $value;
         }
 
         return $row;

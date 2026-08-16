@@ -4,14 +4,20 @@ if (!defined('ABSPATH')) {
 }
 
 /**
- * Cabeceras para la plantilla Matrixify "Companies", con los 30 metacampos
- * de empresa (namespace upng) añadidos al final como columnas
- * "Metafield: namespace.key [tipo]" (misma convención que ya usa
- * class-matrixify-columns.php para custom.pedido_woo).
+ * Cabeceras para el export de usuarios/empresas.
  *
- * Las columnas base (no metafield) NO se han validado contra una plantilla
- * .xlsx real del cliente — son las estándar documentadas en
- * https://matrixify.app/documentation/companies/. Revisar antes de importar.
+ * En este negocio cada usuario de WordPress ES una empresa (B2B puro, sin
+ * clientes particulares sueltos): no tiene sentido separarlos en dos CSV de
+ * Customer y Company como hojas independientes, así que aquí van juntos en
+ * un único fichero — datos de contacto + dirección + los 30 metacampos de
+ * empresa (namespace upng), como columnas "Metafield: namespace.key [tipo]"
+ * (misma convención que ya usa class-matrixify-columns.php para
+ * custom.pedido_woo).
+ *
+ * Las columnas base NO se han validado contra una plantilla .xlsx real del
+ * cliente — son un punto de partida razonable para Matrixify Customers/
+ * Companies (ver https://matrixify.app/documentation/). Revisar antes de
+ * importar si Shopify exige repartirlas en dos hojas al final.
  *
  * El tipo entre corchetes de cada metafield es el que dio el cliente al
  * listar los 30 campos. Antes de importar, confirmar que coincide EXACTO
@@ -19,13 +25,13 @@ if (!defined('ABSPATH')) {
  * Shopify admin puede corresponder a "single_line_text_field" en Matrixify);
  * si no coincide, Matrixify crea el valor pero no lo casa con la definición.
  */
-class ISE_Matrixify_Company_Columns {
+class ISE_Matrixify_User_Columns {
 
     /**
      * Metacampos upng.* que SÍ se pueden rellenar con lo que hay hoy en
-     * WordPress (ver ISE_User_Exporter::row_for_company). El resto se exporta
-     * igualmente como columna (para tener ya la estructura completa lista),
-     * pero siempre vacío hasta que se localice su meta_key de origen.
+     * WordPress (ver ISE_User_Exporter::company_metafields). El resto se
+     * exporta igualmente como columna (para tener ya la estructura completa
+     * lista), pero siempre vacío hasta que se localice su meta_key de origen.
      */
     const CAMPOS_CON_DATO = array(
         'historico_unidades',
@@ -76,21 +82,18 @@ class ISE_Matrixify_Company_Columns {
 
     public static function headers() {
         $base = array(
-            'Company: ID',
-            'Command',
-            'Company: Name',
-            'Company: External ID',
-            'Company: Note',
             'Customer: ID',
             'Customer: Email',
-            'Location: Name',
-            'Location: Address 1',
-            'Location: Address 2',
-            'Location: City',
-            'Location: Province',
-            'Location: Zip',
-            'Location: Country',
-            'Location: Phone',
+            'First Name',
+            'Last Name',
+            'Phone',
+            'Company: Name',
+            'Address 1',
+            'Address 2',
+            'City',
+            'Province',
+            'Zip',
+            'Country',
             // Auxiliares (no son de Matrixify): NIF y código de cliente A3,
             // útiles para cuadrar el import a mano; quitar antes de subir el
             // CSV si Matrixify los interpreta como columna desconocida.

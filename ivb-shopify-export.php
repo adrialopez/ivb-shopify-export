@@ -3,7 +3,7 @@
  * Plugin Name: IVB Shopify Export
  * Plugin URI: https://thinkingidea.com/
  * Description: Exporta pedidos de WooCommerce al formato Matrixify (Orders) y usuarios/empresas (Customers/Companies) para la migración a Shopify. Filtro por fechas y/o cliente.
- * Version: 0.9.0
+ * Version: 0.9.1
  * Author: Thinking Idea
  * Author URI: https://thinkingidea.com/
  * Text Domain: ivb-shopify-export
@@ -25,12 +25,11 @@ if (!in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get
     return;
 }
 
-define('ISE_VERSION', '0.9.0');
+define('ISE_VERSION', '0.9.1');
 define('ISE_PLUGIN_DIR', plugin_dir_path(__FILE__));
 
 require_once ISE_PLUGIN_DIR . 'includes/class-matrixify-columns.php';
-require_once ISE_PLUGIN_DIR . 'includes/class-matrixify-customer-columns.php';
-require_once ISE_PLUGIN_DIR . 'includes/class-matrixify-company-columns.php';
+require_once ISE_PLUGIN_DIR . 'includes/class-matrixify-user-columns.php';
 require_once ISE_PLUGIN_DIR . 'includes/class-csv-writer.php';
 require_once ISE_PLUGIN_DIR . 'includes/class-order-exporter.php';
 require_once ISE_PLUGIN_DIR . 'includes/class-user-exporter.php';
@@ -167,7 +166,7 @@ class IVB_Shopify_Export {
 
             <h2><?php esc_html_e('Exportar usuarios/empresas', 'ivb-shopify-export'); ?></h2>
             <p class="description" style="max-width:900px;">
-                <?php esc_html_e('Genera CSVs separados para las hojas Matrixify "Customers" y "Companies". El de Companies incluye los metacampos upng.* de empresa; solo una parte tiene hoy meta_key de origen conocido en WordPress (histórico de unidades, SEPA, límite mensual) — el resto sale vacío hasta localizar sus meta_key reales.', 'ivb-shopify-export'); ?>
+                <?php esc_html_e('Genera un único CSV con los datos de contacto/dirección del usuario y los metacampos upng.* de empresa: aquí cada usuario ES una empresa, no hay Customer y Company por separado. Solo una parte de los metacampos tiene hoy meta_key de origen conocido en WordPress (histórico de unidades, SEPA, límite mensual) — el resto sale vacío hasta localizar sus meta_key reales.', 'ivb-shopify-export'); ?>
             </p>
             <form method="post" style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:24px;margin-bottom:28px;display:flex;flex-wrap:wrap;gap:24px;align-items:flex-end;box-shadow:0 2px 8px rgba(0,0,0,.04);max-width:900px;">
                 <?php wp_nonce_field('ise_export_users'); ?>
@@ -190,11 +189,8 @@ class IVB_Shopify_Export {
                 </div>
 
                 <div>
-                    <button type="submit" name="ise_export_customers" value="1" class="button button-primary">
-                        <?php esc_html_e('Exportar Customers', 'ivb-shopify-export'); ?>
-                    </button>
-                    <button type="submit" name="ise_export_companies" value="1" class="button button-primary">
-                        <?php esc_html_e('Exportar Companies', 'ivb-shopify-export'); ?>
+                    <button type="submit" name="ise_export_users_csv" value="1" class="button button-primary button-hero">
+                        <?php esc_html_e('Exportar Usuarios/Empresas', 'ivb-shopify-export'); ?>
                     </button>
                 </div>
             </form>
@@ -511,15 +507,12 @@ class IVB_Shopify_Export {
     }
 
     /**
-     * Export de usuarios: dos botones en el mismo formulario ("ise_export_customers"
-     * / "ise_export_companies"), cada uno genera un CSV con una plantilla distinta
-     * (ver ISE_Matrixify_Customer_Columns / ISE_Matrixify_Company_Columns).
+     * Export de usuarios/empresas: un único CSV (ver ISE_Matrixify_User_Columns)
+     * porque en este negocio cada usuario de WordPress ES una empresa, no hay
+     * Customer y Company como entidades separadas.
      */
     public function handle_export_users() {
-        $is_customers = !empty($_POST['ise_export_customers']);
-        $is_companies = !empty($_POST['ise_export_companies']);
-
-        if ((!$is_customers && !$is_companies) || !current_user_can('manage_woocommerce')) {
+        if (empty($_POST['ise_export_users_csv']) || !current_user_can('manage_woocommerce')) {
             return;
         }
 
@@ -557,20 +550,12 @@ class IVB_Shopify_Export {
         }
 
         $exporter = new ISE_User_Exporter();
+        $headers  = ISE_Matrixify_User_Columns::headers();
+        $filename = 'shopify-usuarios-' . gmdate('Y-m-d-His') . '.csv';
+        $builder  = array($exporter, 'row_for_user');
 
-        if ($is_customers) {
-            $headers  = ISE_Matrixify_Customer_Columns::headers();
-            $filename = 'shopify-customers-' . gmdate('Y-m-d-His') . '.csv';
-            $builder  = array($exporter, 'row_for_customer');
-        } else {
-            $headers  = ISE_Matrixify_Company_Columns::headers();
-            $filename = 'shopify-companies-' . gmdate('Y-m-d-His') . '.csv';
-            $builder  = array($exporter, 'row_for_company');
-        }
-
-        $this->log(sprintf('--- Export usuarios iniciado (%s): %d usuarios (rol: %s, solo con empresa: %s) ---',
-            $is_customers ? 'customers' : 'companies', count($user_ids),
-            $role ?: 'todos', $solo_con_empresa ? 'sí' : 'no'));
+        $this->log(sprintf('--- Export usuarios iniciado: %d usuarios (rol: %s, solo con empresa: %s) ---',
+            count($user_ids), $role ?: 'todos', $solo_con_empresa ? 'sí' : 'no'));
 
         try {
             $writer = new ISE_CSV_Writer(null, $headers);
