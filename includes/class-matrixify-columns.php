@@ -142,6 +142,16 @@ class ISE_Matrixify_Columns {
             'Fulfillment: Tracking Number',
             'Fulfillment: Tracking URL',
             'Fulfillment: Send Receipt',
+            // Metacampo interno de IVB: número de pedido original de WooCommerce,
+            // para trazabilidad Woo <-> Shopify. Matrixify crea el metacampo de
+            // pedido a partir del nombre de columna "Metafield: namespace.key [tipo]".
+            'Metafield: custom.pedido_woo [single_line_text_field]',
+            // Columna AUXILIAR (no es de Matrixify; la ignora al importar): el
+            // nombre de usuario de WordPress del cliente. Suele ser el email
+            // original con el que se registró (inmutable), que es el que a menudo
+            // tiene A3 aunque el pedido lleve otro email de contacto. El resolver
+            // la usa para casar pedidos con su empresa y la elimina del CSV final.
+            'Woo User Login',
         );
     }
 }
