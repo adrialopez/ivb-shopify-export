@@ -39,6 +39,7 @@ class ISE_Matrixify_User_Columns {
         'sepa_disponible',
         'minimo_sepa',
         'limite_credito_sepa',
+        'vencimiento_sepa',
         'maximo_unidades_mes',
         'escala_actual',
         'escala_forzada',

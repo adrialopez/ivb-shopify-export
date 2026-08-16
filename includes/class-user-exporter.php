@@ -54,22 +54,25 @@ class ISE_User_Exporter {
     private function company_metafields(WP_User $user) {
         $user_id = $user->ID;
 
-        $capabilities = (string) get_user_meta($user_id, 'ivb_capabilities', true);
-        $sepa_disponible = (strpos($capabilities, '"sepa"') !== false) ? 'TRUE' : 'FALSE';
+        // SEPA disponible: el rol 'sepa' es lo único que habilita el gateway
+        // 'cod' en sepa_restrict_payment() — NO depende de ivb_capabilities.
+        $sepa_disponible = in_array('sepa', (array) $user->roles, true) ? 'TRUE' : 'FALSE';
 
+        // Límite máximo: el custom guardado en sepa_max_amount si existe
+        // (incluido '0', que desactiva SEPA), si no el de sepa_get_default_max_amount()
+        // según el rol de escala (misma lógica, no ivb_capabilities):
+        // 20desc/15desc->20000, 10desc->10000, el resto (5desc o sin rol)->6000.
         $sepa_max_custom = get_user_meta($user_id, 'sepa_max_amount', true);
-        if ($sepa_max_custom !== '') {
-            $sepa_maximo_efectivo = $sepa_max_custom;
-        } elseif (strpos($capabilities, '"20desc"') !== false || strpos($capabilities, '"15desc"') !== false) {
-            $sepa_maximo_efectivo = '20000';
-        } elseif (strpos($capabilities, '"10desc"') !== false) {
-            $sepa_maximo_efectivo = '10000';
-        } else {
-            $sepa_maximo_efectivo = '6000';
-        }
+        $sepa_maximo_efectivo = $sepa_max_custom !== '' ? $sepa_max_custom : $this->sepa_max_por_rol($user);
 
         $sepa_minimo = get_user_meta($user_id, 'sepa_min_amount', true);
         $sepa_minimo = $sepa_minimo !== '' ? $sepa_minimo : '300';
+
+        // sepa_days (30/60/90): es un número de DÍAS, no una fecha, aunque el
+        // metacampo se llame "Fecha Vencimiento SEPA" en Shopify — confirmar
+        // con el cliente si hace falta convertirlo a fecha antes de importar.
+        $sepa_dias = get_user_meta($user_id, 'sepa_days', true);
+        $sepa_dias = $sepa_dias !== '' ? $sepa_dias : '30';
 
         $historico_unidades = get_user_meta($user_id, 'unidadesCompradas', true);
 
@@ -92,6 +95,7 @@ class ISE_User_Exporter {
             'sepa_disponible'        => $sepa_disponible,
             'minimo_sepa'            => $sepa_minimo,
             'limite_credito_sepa'    => $sepa_maximo_efectivo,
+            'vencimiento_sepa'       => $sepa_dias,
             'maximo_unidades_mes'    => $tiene_limite_activo
                 ? get_user_meta($user_id, 'monthly_purchase_limit', true)
                 : '',
@@ -120,6 +124,24 @@ class ISE_User_Exporter {
         }
 
         return '0';
+    }
+
+    /**
+     * Límite máximo de gasto SEPA por defecto según el rol de escala del
+     * usuario, igual que sepa_get_default_max_amount() del plugin de SEPA:
+     * 20desc y 15desc -> 20000, 10desc -> 10000, el resto (5desc o ningún
+     * rol de escala) -> 6000.
+     */
+    private function sepa_max_por_rol(WP_User $user) {
+        $roles = (array) $user->roles;
+
+        if (in_array('20desc', $roles, true) || in_array('15desc', $roles, true)) {
+            return '20000';
+        }
+        if (in_array('10desc', $roles, true)) {
+            return '10000';
+        }
+        return '6000';
     }
 
     /**
