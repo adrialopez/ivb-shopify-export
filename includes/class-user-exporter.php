@@ -80,17 +80,19 @@ class ISE_User_Exporter {
         $escala_actual  = get_user_meta($user_id, 'escalaAuto', true);
         $escala_forzada = ((string) $escala_actual === '0') ? 'TRUE' : 'FALSE';
 
+        // purchase_limit_enabled controla tanto si el tope mensual aplica como
+        // si tiene sentido calcular lo comprado en lo que va de mes: sin
+        // límite activo, ese dato no se usa para nada en el negocio, así que
+        // ni se consulta (evita una query por usuario sin motivo).
+        $tiene_limite_activo = get_user_meta($user_id, 'purchase_limit_enabled', true) == 1;
+
         return array(
             'historico_unidades'     => $historico_unidades,
-            'unidades_compradas_mes' => $this->monthly_purchased_units($user_id),
+            'unidades_compradas_mes' => $tiene_limite_activo ? $this->monthly_purchased_units($user_id) : '',
             'sepa_disponible'        => $sepa_disponible,
             'minimo_sepa'            => $sepa_minimo,
             'limite_credito_sepa'    => $sepa_maximo_efectivo,
-            // purchase_limit_enabled controla si el tope de abajo se aplica o
-            // no; no hay columna upng.* separada para "límite activo" en la
-            // lista de 30, así que monthly_purchase_limit solo se exporta si
-            // el límite está encendido.
-            'maximo_unidades_mes'    => get_user_meta($user_id, 'purchase_limit_enabled', true) == 1
+            'maximo_unidades_mes'    => $tiene_limite_activo
                 ? get_user_meta($user_id, 'monthly_purchase_limit', true)
                 : '',
             'escala_actual'          => $escala_actual,
