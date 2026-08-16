@@ -27,13 +27,16 @@ class ISE_CSV_Writer {
     private $is_temp;
 
     /**
-     * @param string|null $path ruta de salida. Si es null se usa un temporal
-     *                          (flujo web, se entrega por HTTP y se borra). Si se
-     *                          da una ruta, se escribe ahí y NO se borra: es el
-     *                          modo CLI, donde el CSV se genera para quedarse.
+     * @param string|null $path    ruta de salida. Si es null se usa un temporal
+     *                             (flujo web, se entrega por HTTP y se borra). Si se
+     *                             da una ruta, se escribe ahí y NO se borra: es el
+     *                             modo CLI, donde el CSV se genera para quedarse.
+     * @param string[]|null $headers cabeceras a escribir. Si es null, las de la
+     *                             plantilla Matrixify "Orders" (uso histórico de
+     *                             esta clase, antes de admitir otras plantillas).
      * @throws RuntimeException si no se puede crear/abrir el fichero.
      */
-    public function __construct($path = null) {
+    public function __construct($path = null, $headers = null) {
         if ($path === null) {
             $this->path = wp_tempnam('ise-export');
             $this->is_temp = true;
@@ -52,7 +55,7 @@ class ISE_CSV_Writer {
 
         fputs($this->out, "\xEF\xBB\xBF");
 
-        $this->headers = ISE_Matrixify_Columns::headers();
+        $this->headers = $headers !== null ? $headers : ISE_Matrixify_Columns::headers();
         fputcsv($this->out, $this->headers, ',');
     }
 

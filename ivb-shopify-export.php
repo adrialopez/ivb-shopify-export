@@ -2,8 +2,8 @@
 /**
  * Plugin Name: IVB Shopify Export
  * Plugin URI: https://thinkingidea.com/
- * Description: Exporta pedidos de WooCommerce al formato Matrixify (Orders) para la migración a Shopify. Filtro por fechas y/o cliente.
- * Version: 0.8.1
+ * Description: Exporta pedidos de WooCommerce al formato Matrixify (Orders) y usuarios/empresas (Customers/Companies) para la migración a Shopify. Filtro por fechas y/o cliente.
+ * Version: 0.9.0
  * Author: Thinking Idea
  * Author URI: https://thinkingidea.com/
  * Text Domain: ivb-shopify-export
@@ -25,12 +25,15 @@ if (!in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get
     return;
 }
 
-define('ISE_VERSION', '0.8.1');
+define('ISE_VERSION', '0.9.0');
 define('ISE_PLUGIN_DIR', plugin_dir_path(__FILE__));
 
 require_once ISE_PLUGIN_DIR . 'includes/class-matrixify-columns.php';
+require_once ISE_PLUGIN_DIR . 'includes/class-matrixify-customer-columns.php';
+require_once ISE_PLUGIN_DIR . 'includes/class-matrixify-company-columns.php';
 require_once ISE_PLUGIN_DIR . 'includes/class-csv-writer.php';
 require_once ISE_PLUGIN_DIR . 'includes/class-order-exporter.php';
+require_once ISE_PLUGIN_DIR . 'includes/class-user-exporter.php';
 
 class IVB_Shopify_Export {
 
@@ -49,6 +52,7 @@ class IVB_Shopify_Export {
     private function __construct() {
         add_action('admin_menu', array($this, 'add_admin_menu'));
         add_action('admin_init', array($this, 'handle_export'));
+        add_action('admin_init', array($this, 'handle_export_users'));
         add_action('admin_init', array($this, 'handle_save_settings'));
 
         // El comando WP-CLI existe solo cuando se corre desde consola. Es la vía
@@ -157,6 +161,40 @@ class IVB_Shopify_Export {
                 <div>
                     <button type="submit" name="ise_export_csv" value="1" class="button button-primary button-hero">
                         <?php esc_html_e('Exportar CSV', 'ivb-shopify-export'); ?>
+                    </button>
+                </div>
+            </form>
+
+            <h2><?php esc_html_e('Exportar usuarios/empresas', 'ivb-shopify-export'); ?></h2>
+            <p class="description" style="max-width:900px;">
+                <?php esc_html_e('Genera CSVs separados para las hojas Matrixify "Customers" y "Companies". El de Companies incluye los metacampos upng.* de empresa; solo una parte tiene hoy meta_key de origen conocido en WordPress (histórico de unidades, SEPA, límite mensual) — el resto sale vacío hasta localizar sus meta_key reales.', 'ivb-shopify-export'); ?>
+            </p>
+            <form method="post" style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:24px;margin-bottom:28px;display:flex;flex-wrap:wrap;gap:24px;align-items:flex-end;box-shadow:0 2px 8px rgba(0,0,0,.04);max-width:900px;">
+                <?php wp_nonce_field('ise_export_users'); ?>
+
+                <div>
+                    <label for="ise_user_role"><strong><?php esc_html_e('Rol (opcional)', 'ivb-shopify-export'); ?></strong></label><br>
+                    <select id="ise_user_role" name="role">
+                        <option value=""><?php esc_html_e('Todos los roles', 'ivb-shopify-export'); ?></option>
+                        <?php foreach (wp_roles()->get_names() as $slug => $label) : ?>
+                            <option value="<?php echo esc_attr($slug); ?>"><?php echo esc_html($label); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div>
+                    <label>
+                        <input type="checkbox" name="solo_con_empresa" value="1" checked>
+                        <?php esc_html_e('Solo usuarios con empresa asociada (billing_company)', 'ivb-shopify-export'); ?>
+                    </label>
+                </div>
+
+                <div>
+                    <button type="submit" name="ise_export_customers" value="1" class="button button-primary">
+                        <?php esc_html_e('Exportar Customers', 'ivb-shopify-export'); ?>
+                    </button>
+                    <button type="submit" name="ise_export_companies" value="1" class="button button-primary">
+                        <?php esc_html_e('Exportar Companies', 'ivb-shopify-export'); ?>
                     </button>
                 </div>
             </form>
@@ -469,6 +507,117 @@ class IVB_Shopify_Export {
         // se rompe durante readfile() es un problema de red, no del export.
         $estado->finalizado = true;
         $writer->deliver('shopify-orders-' . gmdate('Y-m-d-His') . '.csv');
+        exit;
+    }
+
+    /**
+     * Export de usuarios: dos botones en el mismo formulario ("ise_export_customers"
+     * / "ise_export_companies"), cada uno genera un CSV con una plantilla distinta
+     * (ver ISE_Matrixify_Customer_Columns / ISE_Matrixify_Company_Columns).
+     */
+    public function handle_export_users() {
+        $is_customers = !empty($_POST['ise_export_customers']);
+        $is_companies = !empty($_POST['ise_export_companies']);
+
+        if ((!$is_customers && !$is_companies) || !current_user_can('manage_woocommerce')) {
+            return;
+        }
+
+        if (!check_admin_referer('ise_export_users')) {
+            return;
+        }
+
+        $role            = sanitize_key($_POST['role'] ?? '');
+        $solo_con_empresa = !empty($_POST['solo_con_empresa']);
+
+        $args = array('fields' => 'ID');
+        if ($role !== '') {
+            $args['role'] = $role;
+        }
+        if ($solo_con_empresa) {
+            $args['meta_query'] = array(
+                array(
+                    'key'     => 'billing_company',
+                    'value'   => '',
+                    'compare' => '!=',
+                ),
+            );
+        }
+
+        if (function_exists('wp_raise_memory_limit')) {
+            wp_raise_memory_limit('admin');
+        }
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(0);
+        }
+
+        $user_ids = get_users($args);
+        if (!$user_ids) {
+            $this->abortar('No hay usuarios que coincidan con esos filtros.');
+        }
+
+        $exporter = new ISE_User_Exporter();
+
+        if ($is_customers) {
+            $headers  = ISE_Matrixify_Customer_Columns::headers();
+            $filename = 'shopify-customers-' . gmdate('Y-m-d-His') . '.csv';
+            $builder  = array($exporter, 'row_for_customer');
+        } else {
+            $headers  = ISE_Matrixify_Company_Columns::headers();
+            $filename = 'shopify-companies-' . gmdate('Y-m-d-His') . '.csv';
+            $builder  = array($exporter, 'row_for_company');
+        }
+
+        $this->log(sprintf('--- Export usuarios iniciado (%s): %d usuarios (rol: %s, solo con empresa: %s) ---',
+            $is_customers ? 'customers' : 'companies', count($user_ids),
+            $role ?: 'todos', $solo_con_empresa ? 'sí' : 'no'));
+
+        try {
+            $writer = new ISE_CSV_Writer(null, $headers);
+        } catch (Throwable $e) {
+            $this->log('FATAL creando el CSV de usuarios: ' . $e->getMessage());
+            $this->abortar('No se pudo crear el fichero temporal: ' . $e->getMessage());
+        }
+
+        $fallidos = array();
+        $batch_size = (int) apply_filters('ise_export_batch_size', 100);
+
+        foreach (array_chunk($user_ids, $batch_size) as $batch) {
+            foreach ($batch as $user_id) {
+                $user = get_userdata($user_id);
+                if (!$user) {
+                    $fallidos[$user_id] = 'no se pudo cargar el usuario';
+                    continue;
+                }
+
+                try {
+                    $writer->write_row(call_user_func($builder, $user));
+                } catch (Throwable $e) {
+                    $fallidos[$user_id] = $e->getMessage();
+                    $this->log(sprintf('ERROR en el usuario #%d: %s en %s:%d',
+                        $user_id, $e->getMessage(), $e->getFile(), $e->getLine()));
+                }
+            }
+
+            wp_cache_flush();
+            if (function_exists('gc_collect_cycles')) {
+                gc_collect_cycles();
+            }
+        }
+
+        if ($fallidos) {
+            $this->log(sprintf('Export usuarios terminado CON %d fallos: %s',
+                count($fallidos), wp_json_encode($fallidos)));
+            $writer->cleanup();
+            $this->abortar(sprintf(
+                'Fallaron %d de %d usuarios, así que no se ha generado el CSV. IDs: %s. Detalle en %s',
+                count($fallidos), count($user_ids),
+                implode(', ', array_keys($fallidos)), $this->log_path()
+            ));
+        }
+
+        $this->log(sprintf('Export usuarios OK: %d filas.', $writer->rows_written()));
+        $writer->deliver($filename);
         exit;
     }
 
